@@ -93,7 +93,7 @@
 (function () {
   var SIZE = 4, WIN = 2304;
   var grid = [];          // 4x4 tile objects or null
-  var score = 0, moves = 0, best = 0, won = false;
+  var score = 0, moves = 0, best = 0, won = false, locked = false;
   var boardEl = document.getElementById('board');
 
   try { best = parseInt(localStorage.getItem('ssww_best') || '0', 10); } catch (e) { best = 0; }
@@ -157,6 +157,47 @@
     document.getElementById('best').textContent = best;
   }
 
+  // ---------- persistence ----------
+  function saveState() {
+    try {
+      var flat = [];
+      for (var r = 0; r < SIZE; r++) for (var c = 0; c < SIZE; c++) {
+        var t = grid[r][c];
+        flat.push(t ? t.v : 0);
+      }
+      localStorage.setItem('ssww_state', JSON.stringify({
+        g: flat, s: score, m: moves, w: won ? 1 : 0
+      }));
+    } catch (e) {}
+  }
+
+  function loadState() {
+    var raw = null;
+    try { raw = localStorage.getItem('ssww_state'); } catch (e) { return false; }
+    if (!raw) return false;
+    var d = null;
+    try { d = JSON.parse(raw); } catch (e) { return false; }
+    if (!d || !d.g || d.g.length !== SIZE * SIZE) return false;
+    var filled = 0;
+    for (var k = 0; k < d.g.length; k++) { if (d.g[k] > 0) filled++; }
+    if (!filled) return false;   // 空棋盘当作没有存档
+
+    grid = emptyGrid();
+    for (var r = 0; r < SIZE; r++) for (var c = 0; c < SIZE; c++) {
+      var v = d.g[r * SIZE + c];
+      if (v > 0) {
+        var t = { r: r, c: c, v: v, el: null };
+        grid[r][c] = t;
+        renderTile(t);
+      }
+    }
+    score = d.s || 0;
+    moves = d.m || 0;
+    won = !!d.w;      // 已通关的残局不再弹窗
+    locked = false;
+    return true;
+  }
+
   // ---------- game core ----------
   function emptyGrid() {
     var g = [];
@@ -176,16 +217,17 @@
   }
 
   function newGame() {
-    // clear tiles
-    for (var r = 0; r < SIZE; r++) for (var c = 0; c < SIZE; c++) {
-      var t = grid.length ? grid[r][c] : null;
-      if (t && t.el) t.el.remove();
+    // clear every tile element actually in the DOM (含正在收尾的过渡块)
+    var olds = boardEl.querySelectorAll('.tile');
+    for (var i = 0; i < olds.length; i++) {
+      if (olds[i].parentNode) olds[i].parentNode.removeChild(olds[i]);
     }
     grid = emptyGrid();
-    score = 0; moves = 0; won = false;
+    score = 0; moves = 0; won = false; locked = false;
     document.getElementById('overlay').classList.remove('show');
     spawn(); spawn();
     updateHUD();
+    saveState();
   }
 
   // Extract a line of tiles in traversal order (toward the swipe direction)
@@ -219,33 +261,37 @@
   function canMerge(a, b) { return true; }  // 任意两块相撞即相加
 
   function move(dir) {
+    if (locked) return;               // 结算/通关遮罩期间不接受操作
     var changed = false, gained = 0;
     var mergedThisMove = [];
+    var absorbed = [];                // 被吃掉的那块 → 留给动画收尾
 
     for (var i = 0; i < SIZE; i++) {
       var line = getLine(dir, i);
+      var before = [];
+      for (var b0 = 0; b0 < SIZE; b0++) before.push(line[b0] ? line[b0].v : 0);
       var tiles = line.filter(Boolean);
-      var out = [], mergedFlag = [];
+      var out = [];
       var k = 0;
       while (k < tiles.length) {
         if (k + 1 < tiles.length && canMerge(tiles[k], tiles[k + 1])) {
           var a = tiles[k], b = tiles[k + 1];
           a.v = a.v + b.v;
           gained += a.v;
-          if (b.el) b.el.remove();   // b disappears into a
-          mergedFlag.push(true);
+          absorbed.push({ from: b, to: a });
           mergedThisMove.push(a);
           out.push(a);
           k += 2;
         } else {
-          out.push(tiles[k]); mergedFlag.push(false); k += 1;
+          out.push(tiles[k]);
+          k += 1;
         }
       }
       while (out.length < SIZE) out.push(null);
-      // detect change: compare positions/values with original line
+      // detect change: 逐格比对象与数值（数值用移动前的快照）
       for (var j = 0; j < SIZE; j++) {
         var o = line[j], n = out[j];
-        if ((o && !n) || (!o && n) || (o && n && (o !== n || o.v !== n.v))) { changed = true; break; }
+        if ((o && !n) || (!o && n) || (o && n && (o !== n || before[j] !== n.v))) { changed = true; break; }
       }
       setLine(dir, i, out);
     }
@@ -257,6 +303,21 @@
       var t = grid[r][c];
       if (t) renderTile(t);
     }
+
+    // 被吸收的那块不立刻抹掉：先滑到目标格，动画结束再移除
+    absorbed.forEach(function (pair) {
+      var be = pair.from.el, ae = pair.to.el;
+      if (!be || !ae) return;
+      be.style.top = ae.style.top;
+      be.style.left = ae.style.left;
+      be.style.width = ae.style.width;
+      be.style.height = ae.style.height;
+      be.style.zIndex = 1;
+      setTimeout(function () {
+        if (be.parentNode) be.parentNode.removeChild(be);
+      }, 150);
+    });
+
     mergedThisMove.forEach(function (t) {
       if (t.el) { t.el.classList.remove('pop', 'merged-anim'); void t.el.offsetWidth; t.el.classList.add('merged-anim'); }
     });
@@ -266,6 +327,7 @@
     if (score > best) { best = score; try { localStorage.setItem('ssww_best', String(best)); } catch (e) {} }
     updateHUD();
     spawn();
+    saveState();
 
     if (!won) {
       for (var rr = 0; rr < SIZE; rr++) for (var cc = 0; cc < SIZE; cc++) {
@@ -273,6 +335,7 @@
         if (tt && tt.v >= WIN) {
           won = true;
           showOverlay('🎉 合出 ' + tt.v + '！', '共用 ' + moves + ' 步 · 得分 ' + score);
+          saveState();
         }
       }
     }
@@ -282,6 +345,7 @@
     document.getElementById('ovTitle').textContent = title;
     document.getElementById('ovDetail').textContent = detail;
     document.getElementById('overlay').classList.add('show');
+    locked = true;                    // 锁住棋盘，避免遮罩层上的滑动穿透到底盘
   }
 
   // ---------- input ----------
@@ -316,7 +380,12 @@
     }
   });
 
-  newGame();
+  // ---------- boot ----------
+  if (loadState()) {
+    updateHUD();
+  } else {
+    newGame();
+  }
 })();
 </script>
 </body>

@@ -1,0 +1,15 @@
+# 软著/上架材料：含姓名与身份证号，绝不入库
+store/
+
+# 封面试做的中间产物
+deai/
+
+# 图标草稿，只保留成品
+icon/_preview64.png
+icon/一个中文小游戏*.png
+icon/icon_1_*.png
+icon/icon_2_*.png
+icon/icon_3_*.png
+
+# 临时文件
+_*
