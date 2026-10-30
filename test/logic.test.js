@@ -34,7 +34,7 @@ function makeEnv(store) {
     set innerHTML(v) {
       this._html = v;
       if (v.includes('ovTitle')) {
-        ['ovTitle', 'ovDetail', 'ovBtn'].forEach(n => {
+        ['ovTitle', 'ovDetail', 'ovBtn', 'ovBtn2'].forEach(n => {
           const e = new El('div');
           e.id = n;
           e.parentNode = this;
@@ -165,7 +165,11 @@ setTimeout(() => {
   ]);
   env.key('ArrowLeft');
   ok('弹出通关遮罩', env.ids.overlay.classList.contains('show'));
-  ok('显示 2304', env.ids.ovTitle.textContent.includes('2304'), env.ids.ovTitle.textContent);
+  ok('标题是「正好 2304」', env.ids.ovTitle.textContent.includes('正好 2304'), env.ids.ovTitle.textContent);
+  ok('结算里带步数与历史最少', env.ids.ovDetail.textContent.includes('步通关') &&
+    env.ids.ovDetail.textContent.includes('历史最少'), env.ids.ovDetail.textContent);
+  ok('精确通关写入最少步数记录', store.get('ssww_bestmoves') === '1', String(store.get('ssww_bestmoves')));
+  ok('精确通关不显示「继续滑」', env.ids.ovBtn2.style.display === 'none', String(env.ids.ovBtn2.style.display));
   const snapMoves = env.ids.moves.textContent;
   const snapScore = env.ids.score.textContent;
   const snapTiles = env.tiles().length;
@@ -209,6 +213,25 @@ setTimeout(() => {
   env3.key('ArrowLeft');
   ok('满盘也能合并（不会死局）', env3.ids.moves.textContent !== m0, m0 + ' → ' + env3.ids.moves.textContent);
 
+  // --- 8. 越过 2304 的结局 ---
+  console.log('[8] 越过 2304 不算通关');
+  const env4 = setBoard(makeEnv(new Map()), [
+    [1152, 1200, 0, 0],
+    [0, 0, 0, 0],
+    [0, 0, 0, 0],
+    [0, 0, 0, 0],
+  ]);
+  env4.key('ArrowLeft');
+  ok('越过也弹结算层', env4.ids.overlay.classList.contains('show'));
+  ok('标题是「越过 2304 了」', env4.ids.ovTitle.textContent.includes('越过'), env4.ids.ovTitle.textContent);
+  ok('文案报出超出多少', env4.ids.ovDetail.textContent.includes('2352') && env4.ids.ovDetail.textContent.includes('48'), env4.ids.ovDetail.textContent);
+  ok('提供「继续滑」逃生口', env4.ids.ovBtn2.style.display !== 'none', String(env4.ids.ovBtn2.style.display));
+  ok('超额不写最少步数记录', env4.store.get('ssww_bestmoves') === undefined, String(env4.store.get('ssww_bestmoves')));
+  env4.ids.ovBtn2.fire('click');
+  ok('点「继续滑」关掉遮罩', !env4.ids.overlay.classList.contains('show'));
+  const m4 = Number(env4.ids.moves.textContent);
+  env4.key('ArrowLeft');
+  ok('超额后仍可继续滑', Number(env4.ids.moves.textContent) === m4 + 1, m4 + ' → ' + env4.ids.moves.textContent);
   console.log('\n==== ' + pass + ' passed, ' + fail + ' failed ====');
   process.exit(fail ? 1 : 0);
 }, 260);

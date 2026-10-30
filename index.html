@@ -60,6 +60,10 @@
     border: none; background: #c96f4a; color: #fff; font-weight: 700;
     padding: 10px 22px; border-radius: 8px; cursor: pointer; font-size: 14px;
   }
+  #overlay button.ghost {
+    background: transparent; color: #8a7f6d; font-weight: 600;
+    padding: 4px 10px; font-size: 12px; text-decoration: underline;
+  }
 </style>
 </head>
 <body>
@@ -67,7 +71,7 @@
   <header>
     <div>
       <h1>三生万物</h1>
-      <div class="sub">以 3 为底 · 合出 2304</div>
+      <div class="sub">以 3 为底 · 正好合出 2304</div>
     </div>
     <div class="scores">
       <div class="scorebox"><div class="label">得分</div><div class="val" id="score">0</div></div>
@@ -85,7 +89,7 @@
 
   <div class="hint">
     <b>玩法</b>：滑动方向键/手指，方块相撞即相加（3+3=6，3+6=9，6+6=12……）。<br>
-    <b>目标</b>：合出 <b>2304</b>（=48²，3 的倍数）。本游戏不会死局——比的是谁用的步数少。无尽模式敬请期待。
+    <b>胜利</b>：合出<b>正好 2304</b>（=48²）即通关，比的是谁用的步数少。<b>越过 2304 就是超额</b>，本局不计通关——最后几步要收着点。本游戏不会死局，无尽模式敬请期待。
   </div>
 </div>
 
@@ -93,10 +97,11 @@
 (function () {
   var SIZE = 4, WIN = 2304;
   var grid = [];          // 4x4 tile objects or null
-  var score = 0, moves = 0, best = 0, won = false, locked = false;
+  var score = 0, moves = 0, best = 0, bestMoves = 0, won = false, locked = false;
   var boardEl = document.getElementById('board');
 
   try { best = parseInt(localStorage.getItem('ssww_best') || '0', 10); } catch (e) { best = 0; }
+  try { bestMoves = parseInt(localStorage.getItem('ssww_bestmoves') || '0', 10); } catch (e) { bestMoves = 0; }
 
   // ---------- board DOM ----------
   var cellEls = [];
@@ -112,9 +117,14 @@
     }
     var ov = document.createElement('div');
     ov.id = 'overlay';
-    ov.innerHTML = '<div class="big" id="ovTitle"></div><div class="detail" id="ovDetail"></div><button id="ovBtn">再来一局</button>';
+    ov.innerHTML = '<div class="big" id="ovTitle"></div><div class="detail" id="ovDetail"></div>' +
+      '<button id="ovBtn">再来一局</button><button id="ovBtn2" class="ghost">继续滑（不计通关）</button>';
     boardEl.appendChild(ov);
     document.getElementById('ovBtn').addEventListener('click', function () { newGame(); });
+    document.getElementById('ovBtn2').addEventListener('click', function () {
+      document.getElementById('overlay').classList.remove('show');
+      locked = false;   // 超额后放行，继续当无尽头滑
+    });
   })();
 
   function tileColor(v) {
@@ -329,21 +339,50 @@
     spawn();
     saveState();
 
+    // 胜负判定：正好 2304 才算通关，越过去就是超额
     if (!won) {
+      var top = 0;
       for (var rr = 0; rr < SIZE; rr++) for (var cc = 0; cc < SIZE; cc++) {
         var tt = grid[rr][cc];
-        if (tt && tt.v >= WIN) {
-          won = true;
-          showOverlay('🎉 合出 ' + tt.v + '！', '共用 ' + moves + ' 步 · 得分 ' + score);
-          saveState();
+        if (tt && tt.v > top) top = tt.v;
+      }
+      if (top >= WIN) {
+        won = true;
+        if (top === WIN) {
+          var isRecord = false;
+          if (!bestMoves || moves < bestMoves) {
+            bestMoves = moves;
+            isRecord = true;
+            try { localStorage.setItem('ssww_bestmoves', String(bestMoves)); } catch (e) {}
+          }
+          showOverlay('🎉 正好 2304',
+            moves + ' 步通关 · 得分 ' + score +
+            ' · 历史最少 ' + bestMoves + ' 步' + (isRecord ? '（新纪录）' : ''),
+            { primary: '再来一局' });
+        } else {
+          showOverlay('越过 2304 了',
+            '合出 ' + top + '，超出 ' + (top - WIN) + '。本局不算通关——' +
+            '差最后一步没收住。',
+            { primary: '再来一局', secondary: '继续滑（不计通关）' });
         }
+        saveState();
       }
     }
   }
 
-  function showOverlay(title, detail) {
+  function showOverlay(title, detail, opts) {
+    opts = opts || {};
     document.getElementById('ovTitle').textContent = title;
     document.getElementById('ovDetail').textContent = detail;
+    var b1 = document.getElementById('ovBtn');
+    b1.textContent = opts.primary || '再来一局';
+    var b2 = document.getElementById('ovBtn2');
+    if (opts.secondary) {
+      b2.textContent = opts.secondary;
+      b2.style.display = '';
+    } else {
+      b2.style.display = 'none';
+    }
     document.getElementById('overlay').classList.add('show');
     locked = true;                    // 锁住棋盘，避免遮罩层上的滑动穿透到底盘
   }
